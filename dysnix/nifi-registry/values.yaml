@@ -68,13 +68,19 @@ ingress:
 ## Persist data to a persistent volume
 persistence:
   enabled: true
+
   database:
     # storageClass: "-"
     accessMode: ReadWriteOnce
+    existingVolumeClaim: ""
+    existingVolumeClaimSubPath: ""
     size: 1Gi
+
   flowStorage:
     # storageClass: "-"
     accessMode: ReadWriteOnce
+    existingVolumeClaim: ""
+    existingVolumeClaimSubPath: ""
     size: 1Gi
 
 resources: {}
@@ -180,6 +186,12 @@ extraEnvs: []
 # extraEnvs:
 #   - name: FOO
 #     value: bar
+
+# evaluated as a template
+extraInitContainers: []
+
+# evaluated as a template
+extraVolumes: []
 
 tests:
   images:
