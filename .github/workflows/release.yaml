@@ -3,7 +3,7 @@ name: Release Charts
 on:
   push:
     branches:
-      - main
+      - nifi-registry-release
 
 jobs:
   release:
@@ -24,6 +24,6 @@ jobs:
       - name: Run chart-releaser
         uses: helm/chart-releaser-action@v1.5.0
         with:
-          charts_dir: dysnix/
+          charts_dir: release/
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
