@@ -31,21 +31,32 @@ spec:
       shareProcessNamespace: true
       {{- /* if .Values.certManager.enabled */}}{{ end }}
       initContainers:
-        {{- if .Values.persistence.enabled }}
+        {{- if and .Values.persistence.enabled (not (and .Values.persistence.database.existingVolumeClaim .Values.persistence.flowStorage.existingVolumeClaim)) }}
         - name: take-data-dir-ownership
           image: "{{ .Values.initContainers.alpine.image }}:{{ .Values.initContainers.alpine.tag }}"
           command:
             - chown
             - -R
             - 1000:1000
+            {{- if not .Values.persistence.database.existingVolumeClaim }}
             - /opt/nifi-registry/nifi-registry-current/database
+            {{- end }}
+            {{- if not .Values.persistence.flowStorage.existingVolumeClaim }}
             - /opt/nifi-registry/nifi-registry-current/flow_storage
+            {{- end }}
           volumeMounts:
+            {{- if not .Values.persistence.database.existingVolumeClaim }}
             - name: "database"
               mountPath: /opt/nifi-registry/nifi-registry-current/database
+            {{- end }}
+            {{- if not .Values.persistence.flowStorage.existingVolumeClaim }}
             - name: "flow-storage"
               mountPath: /opt/nifi-registry/nifi-registry-current/flow_storage
               subPath: flow_storage
+            {{- end }}
+        {{- end }}
+        {{- if .Values.extraInitContainers }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.extraInitContainers "context" $) | trim | nindent 8 }}
         {{- end }}
       containers:
         - name: {{ .Chart.Name }}
@@ -157,7 +168,7 @@ spec:
 
           {{ if .Values.oidc.enabled }}
               prop_replace nifi.registry.security.identity.provider ""
-              prop_replace nifi.registry.security.user.oidc.discovery.url {{ .Values.oidc.discoveryUrl }}
+              prop_replace nifi.registry.security.user.oidc.discovery.url "{{ .Values.oidc.discoveryURL }}"
               prop_replace nifi.registry.security.user.oidc.client.id {{ .Values.oidc.clientId }}
               prop_replace nifi.registry.security.user.oidc.client.secret {{ .Values.oidc.clientSecret }}
               prop_replace nifi.registry.security.user.oidc.claim.identifying.user {{ .Values.oidc.claimIdentifyingUser }}
@@ -317,15 +328,17 @@ spec:
             {{ toYaml .Values.extraEnvs | nindent 12 }}
           {{- end }}
           volumeMounts:
-            {{ if .Values.persistence.enabled }}
+            {{- if .Values.persistence.enabled }}
             - name: "database"
               mountPath: /opt/nifi-registry/nifi-registry-current/database
-            {{ end }}
-            {{ if .Values.persistence.enabled }}
+              {{- if .Values.persistence.database.existingVolumeClaimSubPath }}
+              subPath: {{ .Values.persistence.database.existingVolumeClaimSubPath | trim }}
+              {{- end }}
             - name: "flow-storage"
               mountPath: /opt/nifi-registry/nifi-registry-current/flow_storage
-              subPath: flow_storage
-            {{ end }}
+              {{- $flowStorageSubPath := coalesce (.Values.persistence.flowStorage.existingVolumeClaimSubPath | default "flow_storage") | trim  }}
+              subPath: {{ $flowStorageSubPath }}
+            {{- end }}
             {{- if .Values.flowProvider.git.ssh.secretName }}
             - name: ssh-secret
               mountPath: /sshSecret
@@ -371,6 +384,9 @@ spec:
               mountPath: /AuthConfConfigMap
               readOnly: true
             {{- /* if .Values.security.enabled */}}{{ end }}
+            {{- if .Values.extraVolumeMounts }}
+            {{- include "common.tplvalues.render" ( dict "value" .Values.extraVolumeMounts "context" $ ) | nindent 12 }}
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           readinessProbe:
@@ -427,6 +443,18 @@ spec:
 {{ toYaml .Values.certManager.resources | indent 12 }}
         {{- /* if .Values.certManager.enabled */}}{{ end }}
       volumes:
+      {{- if .Values.persistence.enabled }}
+      {{- if .Values.persistence.database.existingVolumeClaim }}
+      - name: database
+        persistentVolumeClaim:
+          claimName: {{ .Values.persistence.database.existingVolumeClaim | trim }}
+      {{- end }}
+      {{- if .Values.persistence.flowStorage.existingVolumeClaim }}
+      - name: flow-storage
+        persistentVolumeClaim:
+          claimName: {{ .Values.persistence.flowStorage.existingVolumeClaim | trim }}
+      {{- end }}
+      {{- end }}
       {{- if .Values.flowProvider.git.ssh.secretName }}
       - name: ssh-secret
         secret:
@@ -465,7 +493,11 @@ spec:
       - name: {{ include "nifi-registry.fullname" $ }}-{{ . }}
         secret:
           secretName: {{ . }}
-      {{- /* range .Values.certManager.caSecrets */}}{{ end }}
+      {{- /* range .Values.certManager.caSecrets */}}
+      {{ end }}
+      {{- if .Values.extraVolumes }}
+      {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 8 }}
+      {{- end }}
       {{- /* if .Values.certManager.enabled */}}{{ end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
@@ -479,8 +511,10 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+  {{- if or .Values.security.enabled (and .Values.persistence.enabled (not (and .Values.persistence.database.existingVolumeClaim .Values.persistence.flowStorage.existingVolumeClaim))) }}
   volumeClaimTemplates:
-  {{ if .Values.persistence.enabled }}
+  {{- if .Values.persistence.enabled }}
+  {{- if not .Values.persistence.database.existingVolumeClaim }}
   - metadata:
       name: database
     spec:
@@ -496,6 +530,8 @@ spec:
       resources:
         requests:
           storage: {{ .Values.persistence.database.size | quote }}
+  {{- end }}
+  {{- if not .Values.persistence.flowStorage.existingVolumeClaim }}
   - metadata:
       name: flow-storage
     spec:
@@ -511,7 +547,8 @@ spec:
       resources:
         requests:
           storage: {{ .Values.persistence.flowStorage.size | quote }}
-  {{ end }}
+  {{- end }}
+  {{- end }}
   {{ if .Values.security.enabled }}
   - metadata:
       name: auth-conf
@@ -529,3 +566,4 @@ spec:
         requests:
           storage: {{ .Values.security.persistence.size | quote }}
   {{/* if .Values.security.enabled */}}{{end}}
+  {{- end }}
